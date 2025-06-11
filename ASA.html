@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Colaboradores ASA</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js para os gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- SheetJS para ler arquivos de planilha -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Fontes do Google -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        .dashboard-card {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .dashboard-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+        }
+        #pieChartContainer { position: relative; height: 40vh; width: 100%; }
+        @media (min-width: 640px) { #pieChartContainer { height: 320px; } }
+    </style>
+</head>
+<body class="p-4 sm:p-6 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Cabeçalho -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-slate-800">Dashboard de Colaboradores</h1>
+            <p class="text-slate-500 mt-1">Análise visual e interativa dos dados de colaboradores.</p>
+        </header>
+
+        <!-- Seção de Upload -->
+        <div class="bg-white p-4 rounded-lg shadow-md mb-8">
+             <h2 class="text-lg font-semibold text-slate-700 mb-2">Atualizar com Planilha</h2>
+             <div class="flex flex-col sm:flex-row gap-4 items-center">
+                 <input type="file" id="fileUploader" accept=".xlsx, .xls, .csv" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                 <button id="processFileBtn" class="w-full sm:w-auto bg-indigo-600 text-white px-5 py-2 rounded-md hover:bg-indigo-700 transition-colors whitespace-nowrap">Processar Planilha</button>
+             </div>
+             <div id="statusMessage" class="mt-3 text-sm"></div>
+        </div>
+
+        <!-- Filtros -->
+        <div class="bg-white p-4 rounded-lg shadow-md mb-8 flex flex-col sm:flex-row gap-4 items-end">
+            <div class="flex-1">
+                <label for="categoryFilter" class="block text-sm font-medium text-slate-700">Filtrar por Categoria:</label>
+                <select id="categoryFilter" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    <option value="all">Todas as Categorias</option>
+                </select>
+            </div>
+            <div class="flex-1">
+                <label for="statusFilter" class="block text-sm font-medium text-slate-700">Filtrar por Status:</label>
+                <select id="statusFilter" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    <option value="all">Todos os Status</option>
+                </select>
+            </div>
+             <div>
+                <button id="resetFilters" class="w-full sm:w-auto bg-slate-600 text-white px-4 py-2 rounded-md hover:bg-slate-700 transition-colors">
+                    Limpar Filtros
+                </button>
+            </div>
+        </div>
+        
+        <!-- KPIs -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            <div id="kpi-total-colaboradores" class="dashboard-card bg-white p-6 rounded-lg shadow-md flex items-center gap-4"></div>
+            <div id="kpi-ativos" class="dashboard-card bg-white p-6 rounded-lg shadow-md flex items-center gap-4"></div>
+            <div id="kpi-pendentes" class="dashboard-card bg-white p-6 rounded-lg shadow-md flex items-center gap-4"></div>
+        </div>
+
+        <!-- Gráficos -->
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-8">
+            <div class="lg:col-span-3 dashboard-card bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold text-slate-800 mb-4">Colaboradores por Categoria</h2>
+                <canvas id="barChart"></canvas>
+            </div>
+            <div class="lg:col-span-2 dashboard-card bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-xl font-semibold text-slate-800 mb-4">Colaboradores por Status</h2>
+                <div id="pieChartContainer">
+                    <canvas id="pieChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabela de Dados -->
+        <div class="dashboard-card bg-white p-6 rounded-lg shadow-md">
+            <div class="flex justify-between items-center mb-4">
+                 <h2 class="text-xl font-semibold text-slate-800">Detalhes dos Colaboradores</h2>
+                 <span id="table-counter" class="text-sm text-slate-500"></span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200">
+                    <thead class="bg-slate-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">ID</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nome</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Categoria</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTable" class="bg-white divide-y divide-slate-200"></tbody>
+                </table>
+            </div>
+            <div id="loadMoreContainer" class="text-center mt-4">
+                <button id="loadMoreBtn" class="bg-indigo-600 text-white px-6 py-2 rounded-md hover:bg-indigo-700 transition-colors">Carregar Mais</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DADOS INICIAIS ---
+        let appData = [
+            { id: 4330, nome: 'ALINE OLIVEIRA SILVA', categoria: 'ASA', status: 'Pendente' },
+            { id: 3484, nome: 'ANA BEATRIZ DA SILVA PINTO', categoria: 'ASA', status: 'Pendente' },
+            { id: 4107, nome: 'ANA CAROLINA ARAUJO OLIVEIRA', categoria: 'ASA', status: 'Ativa' },
+            { id: 4002, nome: 'ANA CAROLINE CARVALHO DE SOUZA', categoria: 'ASA', status: 'Pendente' },
+            { id: 954, nome: 'ANDREA LOURENCO GOMES', categoria: 'ASA', status: 'Pendente' },
+            { id: 2172, nome: 'BRUNO MARCENO DA SILVA', categoria: 'ASA', status: 'Ativa' },
+        ];
+        
+        // --- VARIÁVEIS GLOBAIS ---
+        let barChart, pieChart;
+        let currentFilteredData = [];
+        let itemsToShow = 50;
+        const itemsPerLoad = 50;
+
+        const categoryFilter = document.getElementById('categoryFilter');
+        const statusFilter = document.getElementById('statusFilter');
+        const resetButton = document.getElementById('resetFilters');
+        const loadMoreBtn = document.getElementById('loadMoreBtn');
+        const fileUploader = document.getElementById('fileUploader');
+        const processFileBtn = document.getElementById('processFileBtn');
+        const statusMessage = document.getElementById('statusMessage');
+
+        // --- MANIPULAÇÃO DE ARQUIVOS (NOVO) ---
+        function handleFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    // Converte os dados da planilha para o formato do appData
+                    // Assumindo a ordem das colunas: Categoria, ID, Nome, Status
+                    // Pula a primeira linha (cabeçalho) com .slice(1)
+                    const newData = jsonData.slice(1).map(row => {
+                        return {
+                            categoria: row[0] || 'N/A',
+                            id: row[1] || 'N/A',
+                            nome: row[2] || 'N/A',
+                            status: row[3] || 'Pendente'
+                        };
+                    }).filter(item => item.id !== 'N/A'); // Remove linhas vazias
+
+                    if(newData.length === 0){
+                       statusMessage.textContent = "Erro: A planilha parece estar vazia ou em um formato incorreto.";
+                       statusMessage.className = 'mt-3 text-sm text-red-600';
+                       return;
+                    }
+
+                    appData = newData; // Substitui os dados antigos pelos da planilha
+                    
+                    // Limpa e repopula os filtros com os novos dados
+                    categoryFilter.innerHTML = '<option value="all">Todas as Categorias</option>';
+                    statusFilter.innerHTML = '<option value="all">Todos os Status</option>';
+                    populateFilters();
+
+                    // Atualiza o dashboard
+                    runFullUpdate();
+                    
+                    statusMessage.textContent = `Sucesso! ${appData.length} registros carregados da planilha.`;
+                    statusMessage.className = 'mt-3 text-sm text-green-600';
+
+                } catch (error) {
+                    console.error("Erro ao processar o arquivo:", error);
+                    statusMessage.textContent = "Erro ao ler o arquivo. Verifique se o formato está correto.";
+                    statusMessage.className = 'mt-3 text-sm text-red-600';
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // --- FUNÇÕES DE INICIALIZAÇÃO ---
+        function populateFilters() {
+            const categories = [...new Set(appData.map(item => item.categoria))].sort();
+            const statuses = [...new Set(appData.map(item => item.status))].sort();
+
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.textContent = cat;
+                categoryFilter.appendChild(option);
+            });
+
+            statuses.forEach(stat => {
+                const option = document.createElement('option');
+                option.value = stat;
+                option.textContent = stat;
+                statusFilter.appendChild(option);
+            });
+        }
+        
+        // --- FUNÇÕES DE ATUALIZAÇÃO DO DASHBOARD ---
+        function runFullUpdate() {
+            const selectedCategory = categoryFilter.value;
+            const selectedStatus = statusFilter.value;
+
+            currentFilteredData = appData.filter(item => {
+                const categoryMatch = selectedCategory === 'all' || item.categoria === selectedCategory;
+                const statusMatch = selectedStatus === 'all' || item.status === selectedStatus;
+                return categoryMatch && statusMatch;
+            });
+
+            itemsToShow = 50; 
+            updateKPIs(currentFilteredData);
+            updateBarChart(currentFilteredData);
+            updatePieChart(currentFilteredData);
+            updateDataTable(true);
+        }
+
+        function updateKPIs(data) {
+            const totalColaboradores = appData.length;
+            const totalAtivos = data.filter(item => (item.status || '').toLowerCase().includes('ativ')).length;
+            const totalPendentes = data.length - totalAtivos;
+
+            document.getElementById('kpi-total-colaboradores').innerHTML = `<div class="bg-blue-100 p-3 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg></div><div><div class="text-3xl font-bold text-slate-800">${totalColaboradores}</div><div class="text-sm text-slate-500">Total de Colaboradores</div></div>`;
+            document.getElementById('kpi-ativos').innerHTML = `<div class="bg-green-100 p-3 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><div><div class="text-3xl font-bold text-slate-800">${totalAtivos}</div><div class="text-sm text-slate-500">Ativos (na seleção)</div></div>`;
+            document.getElementById('kpi-pendentes').innerHTML = `<div class="bg-amber-100 p-3 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div><div><div class="text-3xl font-bold text-slate-800">${totalPendentes}</div><div class="text-sm text-slate-500">Pendentes (na seleção)</div></div>`;
+        }
+
+        function updateBarChart(data) {
+            const ctx = document.getElementById('barChart').getContext('2d');
+            const dataByCategoria = data.reduce((acc, item) => { acc[item.categoria] = (acc[item.categoria] || 0) + 1; return acc; }, {});
+            const labels = Object.keys(dataByCategoria);
+            const values = Object.values(dataByCategoria);
+            if (barChart) barChart.destroy();
+            barChart = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ label: 'Nº de Colaboradores', data: values, backgroundColor: 'rgba(59, 130, 246, 0.7)', borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 1, borderRadius: 4 }] }, options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } } });
+        }
+        
+        function updatePieChart(data) {
+            const ctx = document.getElementById('pieChart').getContext('2d');
+            const dataByStatus = data.reduce((acc, item) => {
+                let status = item.status || "Pendente";
+                if (status.toLowerCase().includes('aguardando')) { status = 'Aguardando Doc.'; } else if (status.toLowerCase().includes('bloqueio')) { status = 'Bloqueado'; }
+                acc[status] = (acc[status] || 0) + 1; return acc;
+            }, {});
+            const labels = Object.keys(dataByStatus);
+            const values = Object.values(dataByStatus);
+            if (pieChart) pieChart.destroy();
+            pieChart = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ label: 'Colaboradores', data: values, backgroundColor: ['rgba(16, 185, 129, 0.7)', 'rgba(245, 158, 11, 0.7)', 'rgba(239, 68, 68, 0.7)', 'rgba(99, 102, 241, 0.7)', 'rgba(139, 92, 246, 0.7)', 'rgba(236, 72, 153, 0.7)', 'rgba(6, 182, 212, 0.7)', 'rgba(124, 58, 237, 0.7)'], borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } } } });
+        }
+        
+        function updateDataTable(isNewFilter = false) {
+            const tableBody = document.getElementById('dataTable');
+            if (isNewFilter) tableBody.innerHTML = '';
+            
+            const dataToShow = currentFilteredData.slice(0, itemsToShow);
+            tableBody.innerHTML = '';
+            
+            if (currentFilteredData.length === 0) {
+                 tableBody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-slate-500">Nenhum dado encontrado.</td></tr>`;
+                 document.getElementById('table-counter').textContent = '';
+                 loadMoreBtn.style.display = 'none';
+                 return;
+            }
+            
+            const statusColors = { "Ativa": "bg-green-100 text-green-800", "Ativo": "bg-green-100 text-green-800", "Aguardando": "bg-yellow-100 text-yellow-800", "Cancelada": "bg-red-100 text-red-800", "Bloqueio": "bg-red-200 text-red-900", "DICT": "bg-blue-100 text-blue-800" };
+            const defaultColor = "bg-slate-100 text-slate-800";
+
+            dataToShow.forEach(item => {
+                const statusText = item.status || 'Pendente';
+                const colorKey = Object.keys(statusColors).find(key => statusText.toLowerCase().includes(key.toLowerCase()));
+                const finalColorClass = colorKey ? statusColors[colorKey] : defaultColor;
+
+                const row = `<tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">${item.id}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">${item.nome}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">${item.categoria}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${finalColorClass}">${statusText}</span></td>
+                    </tr>`;
+                tableBody.innerHTML += row;
+            });
+            
+            document.getElementById('table-counter').textContent = `Mostrando ${dataToShow.length} de ${currentFilteredData.length} registros`;
+            loadMoreBtn.style.display = (dataToShow.length >= currentFilteredData.length) ? 'none' : 'block';
+        }
+        
+        // --- EVENT LISTENERS ---
+        processFileBtn.addEventListener('click', () => {
+            if (fileUploader.files.length === 0) {
+                statusMessage.textContent = 'Por favor, selecione um arquivo primeiro.';
+                statusMessage.className = 'mt-3 text-sm text-yellow-600';
+                return;
+            }
+            handleFile(fileUploader.files[0]);
+        });
+        categoryFilter.addEventListener('change', runFullUpdate);
+        statusFilter.addEventListener('change', runFullUpdate);
+        resetButton.addEventListener('click', () => {
+            categoryFilter.value = 'all';
+            statusFilter.value = 'all';
+            runFullUpdate();
+        });
+        loadMoreBtn.addEventListener('click', () => {
+            itemsToShow += itemsPerLoad;
+            updateDataTable();
+        });
+
+        // --- INICIALIZAÇÃO ---
+        document.addEventListener('DOMContentLoaded', () => {
+            populateFilters();
+            runFullUpdate();
+        });
+    </script>
+</body>
+</html>
